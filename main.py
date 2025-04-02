@@ -1,58 +1,87 @@
 import os
 import numpy as np
-import shutil
+import pandas as pd
 import tensorflow as tf
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping
 
 # Define paths containing the images
-data_dir = "data/"
-fake_dir = os.path.join(data_dir, "fake/")
-real_dir = os.path.join(data_dir, "real/")
+data_dir = "data"
+fake_dir = os.path.join(data_dir, "fake")
+real_dir = os.path.join(data_dir, "real")
 
-# Create directories for train, validation, and test sets
-for subset in ['train', 'val', 'test']:
-    for category in ['fake', 'real']:
-        os.makedirs(os.path.join(data_dir, subset, category), exist_ok=True)
+def get_dataset(fake_dir, real_dir, balance=False):
+    fake_images = [os.path.join(fake_dir, f) for f in os.listdir(fake_dir)]
+    real_images = [os.path.join(real_dir, f) for f in os.listdir(real_dir)]
 
+    if balance:
+        """Truncates each class to the minimum count"""
+        min_images  = min(len(fake_images), len(real_images))
+        fake_images = fake_images[:min_images]
+        real_images = real_images[:min_images]
+    
+    image_paths = fake_images + real_images
+    labels = ["fake"] * len(fake_images) + ["real"] * len(real_images)
+    return image_paths, labels
 
-# Function to split data
-def split_data(src_dir, train_dir, val_dir, test_dir, split_ratio):
-    all_files = os.listdir(src_dir)
-    np.random.shuffle(all_files)
-    train_ratio = int(len(all_files) * split_ratio[0])
-    val_ratio = int(len(all_files) * split_ratio[1])
-    train_files = all_files[:train_ratio]
-    val_files = all_files[train_ratio:train_ratio + val_ratio]
-    test_files = all_files[train_ratio + val_ratio:]
+def split_indices(indices, split_ratio):
+    train = int(split_ratio[0] * len(indices))
+    val = int(split_ratio[1] * len(indices))
 
-    for file in train_files:
-        shutil.copy(os.path.join(src_dir, file), train_dir)
-    for file in val_files:
-        shutil.copy(os.path.join(src_dir, file), val_dir)
-    for file in test_files:
-        shutil.copy(os.path.join(src_dir, file), test_dir)
+    train_idx = indices[:train]
+    val_idx = indices[train:train + val]
+    test_idx = indices[train + val:]
+    return train_idx, val_idx, test_idx
 
+def split_data(image_paths, labels, split_ratio, seed=42, balance=False):
+    image_paths, labels = np.array(image_paths), np.array(labels)
+    
+    np.random.seed(seed)
+    
+    if not balance:
+        idx = np.arange(len(image_paths))
+        np.random.shuffle(idx)
+        train_idx, val_idx, test_idx = split_indices(idx, split_ratio)
+        
+    else:
+        """Balance class by class"""
+        fake_idx = np.where(labels == "fake")[0]
+        real_idx = np.where(labels == "real")[0]
+        
+        np.random.shuffle(fake_idx)
+        np.random.shuffle(real_idx)
 
-# Split the data
-split_ratio = [0.6, 0.2, 0.2]  # 60% train, 20% validation, 20% test
-split_data(
-    fake_dir,
-    os.path.join(data_dir, 'train/fake'),
-    os.path.join(data_dir, 'val/fake'),
-    os.path.join(data_dir, 'test/fake'),
-    split_ratio
-)
-split_data(
-    real_dir,
-    os.path.join(data_dir, 'train/real'),
-    os.path.join(data_dir, 'val/real'),
-    os.path.join(data_dir, 'test/real'),
-    split_ratio
-)
+        fake_train, fake_val, fake_test = split_indices(fake_idx, split_ratio)
+        real_train, real_val, real_test = split_indices(real_idx, split_ratio)
+        
+        train_idx = np.concatenate([fake_train, real_train])
+        val_idx = np.concatenate([fake_val, real_val])
+        test_idx = np.concatenate([fake_test, real_test])
+        
+        np.random.shuffle(train_idx)
+        np.random.shuffle(val_idx)
+        np.random.shuffle(test_idx)
+
+    return (image_paths[train_idx], labels[train_idx]), (image_paths[val_idx], labels[val_idx]), (image_paths[test_idx], labels[test_idx])
+
+def print_dataset(name, labels_array):
+    print(f"{name} Dataset: {len(labels_array)}")
+    print(f"fake: {np.sum(labels_array == 'fake')}")
+    print(f"real: {np.sum(labels_array == 'real')}")
+
+image_paths, labels = get_dataset(fake_dir, real_dir, balance=True)
+(train_x, train_y), (val_x, val_y), (test_x, test_y) = split_data(image_paths, labels, split_ratio=[0.6, 0.2, 0.2], balance=True)
+
+print_dataset("Train", train_y)
+print_dataset("Validation", val_y)
+print_dataset("Test", test_y)
+print_dataset("Full", np.concatenate([train_y, val_y, test_y]))
+
+train_df = pd.DataFrame({"image_path": train_x, "label": train_y})
+val_df   = pd.DataFrame({"image_path": val_x,   "label": val_y})
+test_df  = pd.DataFrame({"image_path": test_x,  "label": test_y})
 
 # Image properties
 img_height, img_width = 300, 300
@@ -70,26 +99,32 @@ train_datagen = ImageDataGenerator(
 )
 val_test_datagen = ImageDataGenerator(rescale=1./255)
 
-train_set = train_datagen.flow_from_directory(
-    os.path.join(data_dir, 'train'),
+train_set = train_datagen.flow_from_dataframe(
+    dataframe=train_df,
+    x_col="image_path",
+    y_col="label",
     target_size=(img_height, img_width),
     batch_size=batch_size,
     class_mode='binary'
 )
 
-val_set = val_test_datagen.flow_from_directory(
-    os.path.join(data_dir, 'val'),
+val_set = val_test_datagen.flow_from_dataframe(
+    dataframe=val_df,
+    x_col="image_path",
+    y_col="label",
     target_size=(img_height, img_width),
     batch_size=batch_size,
     class_mode='binary'
 )
 
-test_set = val_test_datagen.flow_from_directory(
-    os.path.join(data_dir, 'test'),
+test_set = val_test_datagen.flow_from_dataframe(
+    dataframe=test_df,
+    x_col="image_path",
+    y_col="label",
     target_size=(img_height, img_width),
     batch_size=batch_size,
     class_mode='binary',
-    shuffle=False
+    shuffle=False 
 )
 
 # Define the CNN
@@ -142,4 +177,3 @@ history = model.fit(
 # Evaluate on test set
 test_loss, test_acc = model.evaluate(test_set)
 print(f"Test Accuracy: {test_acc:.4f}")
-
