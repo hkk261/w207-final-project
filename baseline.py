@@ -2,6 +2,7 @@ import os
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
@@ -128,6 +129,7 @@ test_set = val_test_datagen.flow_from_dataframe(
 )
 
 # Define the CNN
+'''
 model = Sequential()
 
 model.add(Conv2D(filters=32, kernel_size=(3, 3), activation='relu', input_shape=(img_height, img_width, 3)))
@@ -144,6 +146,17 @@ model.add(Dense(units=128, activation='relu'))
 model.add(Dropout(rate=0.5))
 
 model.add(Dense(units=1, activation='sigmoid'))  # Binary classification
+'''
+
+
+# Baseline FFNN
+model = Sequential()
+
+model.add(Flatten())
+model.add(Dense(units=128, activation='relu'))
+model.add(Dense(units=128, activation='relu'))
+model.add(Dense(units=1, activation='sigmoid'))
+
 
 # Compile the model
 learning_rate = 0.0001
