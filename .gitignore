@@ -1,5 +1,6 @@
 *.zip
-data/
+data/*
+!data/README.md
 .python-version
 
 ### JetBrains+all ###

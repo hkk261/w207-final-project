@@ -12,7 +12,7 @@ from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, roc_curve, 
 from sklearn.linear_model import LogisticRegression
 
 # Define paths containing the images
-data_dir = "data"
+data_dir = "../data"
 fake_dir = os.path.join(data_dir, "fake")
 real_dir = os.path.join(data_dir, "real")
 
